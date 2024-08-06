@@ -61,7 +61,9 @@ public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugi
                         handler.post(new Runnable() {
                             @Override
                             public void run() {
-                                channel.invokeMethod("onCallback", null);
+                                if (channel != null) {
+                                    channel.invokeMethod("onCallback", null);
+                                }
                             }
                         });
                     }
