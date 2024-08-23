@@ -90,7 +90,6 @@ public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugi
                 @Override
                 public Unit invoke(String screenshotName) {
                     if (!screenshotName.equals(lastScreenshotName)) {
-                        Log.w(TAG, "screenshotin nimi " + screenshotName);
                         lastScreenshotName = screenshotName;
                         handler.post(new Runnable() {
                             @Override
