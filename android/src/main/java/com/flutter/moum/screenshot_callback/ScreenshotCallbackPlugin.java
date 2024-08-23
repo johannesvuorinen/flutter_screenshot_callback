@@ -4,29 +4,39 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import android.Manifest;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.BinaryMessenger;
+import android.app.Activity;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.util.Log;
+import android.content.pm.PackageManager;
 
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
 
-public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugin {
+public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware  {
     private static MethodChannel channel;
-    private static final String ttag = "screenshot_callback";
+    @Nullable private ActivityPluginBinding pluginBinding;
+    private static final String TAG = "ScreenshotCallback";
 
     private Context applicationContext;
 
     private Handler handler;
     private ScreenshotDetector detector;
     private String lastScreenshotName;
-
+    
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
         onAttachedToEngine(binding.getApplicationContext(), binding.getBinaryMessenger());
@@ -48,15 +58,39 @@ public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugi
     }
 
     @Override
+    public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+        pluginBinding = binding;
+    }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+        onAttachedToActivity(binding);
+    }
+
+    @Override
+    public void onDetachedFromActivity() {
+        pluginBinding = null;
+    }
+
+    @Override
+    public void onDetachedFromActivityForConfigChanges() {
+        onDetachedFromActivity();
+    }
+
+    @Override
     public void onMethodCall(MethodCall call, Result result) {
 
         if (call.method.equals("initialize")) {
+            if (pluginBinding == null) {
+                result.success("initialize");
+            }
             handler = new Handler(Looper.getMainLooper());
 
-            detector = new ScreenshotDetector(applicationContext, new Function1<String, Unit>() {
+            detector = new ScreenshotDetector(pluginBinding.getActivity(), applicationContext, new Function1<String, Unit>() {
                 @Override
                 public Unit invoke(String screenshotName) {
                     if (!screenshotName.equals(lastScreenshotName)) {
+                        Log.w(TAG, "screenshotin nimi " + screenshotName);
                         lastScreenshotName = screenshotName;
                         handler.post(new Runnable() {
                             @Override
