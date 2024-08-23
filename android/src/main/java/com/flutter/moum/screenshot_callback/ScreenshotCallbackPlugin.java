@@ -1,115 +1,86 @@
-package com.flutter.moum.screenshot_callback
+package com.flutter.moum.screenshot_callback;
 
-import android.content.ContentResolver
-import android.content.Context
-import android.database.ContentObserver
-import android.net.Uri
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.MediaStore
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
-class ScreenshotDetector(private val context: Context,
-                         private val callback: (name: String) -> Unit) {
+import io.flutter.plugin.common.MethodCall;
+import io.flutter.plugin.common.MethodChannel;
+import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
+import io.flutter.plugin.common.MethodChannel.Result;
+import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.plugin.common.BinaryMessenger;
 
-    private var contentObserver: ContentObserver? = null
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
-    fun start() {
-        if (contentObserver == null) {
-            contentObserver = context.contentResolver.registerObserver()
+import kotlin.Unit;
+import kotlin.jvm.functions.Function1;
+
+public class ScreenshotCallbackPlugin implements MethodCallHandler, FlutterPlugin {
+    private static MethodChannel channel;
+    private static final String ttag = "screenshot_callback";
+
+    private Context applicationContext;
+
+    private Handler handler;
+    private ScreenshotDetector detector;
+    private String lastScreenshotName;
+
+    @Override
+    public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+        onAttachedToEngine(binding.getApplicationContext(), binding.getBinaryMessenger());
+    }
+
+    private void onAttachedToEngine(Context applicationContext, BinaryMessenger messenger) {
+        this.applicationContext = applicationContext;
+        channel = new MethodChannel(messenger, "flutter.moum/screenshot_callback");
+        channel.setMethodCallHandler(this);
+    }
+
+    @Override
+    public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        applicationContext = null;
+        if (channel != null) {
+            channel.setMethodCallHandler(null);
+            channel = null;
         }
     }
 
-    fun stop() {
-        contentObserver?.let { context.contentResolver.unregisterContentObserver(it) }
-        contentObserver = null
-    }
+    @Override
+    public void onMethodCall(MethodCall call, Result result) {
 
-    private fun reportScreenshotsUpdate(uri: Uri) {
-        val screenshots: List<String> = queryScreenshots(uri)
-        if (screenshots.isNotEmpty()) {
-            callback.invoke(screenshots.last());
-        }
-    }
+        if (call.method.equals("initialize")) {
+            handler = new Handler(Looper.getMainLooper());
 
-    private fun queryScreenshots(uri: Uri): List<String> {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                queryRelativeDataColumn(uri)
-            } else {
-                queryDataColumn(uri)
-            }
-        }  catch (e:Exception){
-            listOf()
-        }
-    }
-
-    private fun queryDataColumn(uri: Uri): List<String> {
-        val screenshots = mutableListOf<String>()
-
-        val projection = arrayOf(
-                MediaStore.Images.Media.DATA
-        )
-        context.contentResolver.query(
-                uri,
-                projection,
-                null,
-                null,
-                null
-        )?.use { cursor ->
-            val dataColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(dataColumn)
-                if (path.contains("screenshot", true)) {
-                    screenshots.add(path)
+            detector = new ScreenshotDetector(applicationContext, new Function1<String, Unit>() {
+                @Override
+                public Unit invoke(String screenshotName) {
+                    if (!screenshotName.equals(lastScreenshotName)) {
+                        lastScreenshotName = screenshotName;
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (channel != null) {
+                                    channel.invokeMethod("onCallback", null);
+                                }
+                            }
+                        });
+                    }
+                    return null;
                 }
-            }
+            });
+            detector.start();
+
+            result.success("initialize");
+        } else if (call.method.equals("dispose")) {
+            detector.stop();
+            detector = null;
+            lastScreenshotName = null;
+
+            result.success("dispose");
+        } else {
+            result.notImplemented();
         }
-
-        return screenshots
-    }
-
-    private fun queryRelativeDataColumn(uri: Uri): List<String> {
-        val screenshots = mutableListOf<String>()
-
-        val projection = arrayOf(
-                MediaStore.Images.Media.DISPLAY_NAME,
-                MediaStore.Images.Media.RELATIVE_PATH
-        )
-        context.contentResolver.query(
-                uri,
-                projection,
-                null,
-                null,
-                null
-        )?.use { cursor ->
-            val relativePathColumn =
-                    cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH)
-            val displayNameColumn =
-                    cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
-            while (cursor.moveToNext()) {
-                val name = cursor.getString(displayNameColumn)
-                val relativePath = cursor.getString(relativePathColumn)
-                if (name.contains("screenshot", true) or
-                        relativePath.contains("screenshot", true)
-                ) {
-                    screenshots.add(name)
-                }
-            }
-        }
-
-        return screenshots
-    }
-
-    private fun ContentResolver.registerObserver(): ContentObserver {
-        val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean, uri: Uri?) {
-                super.onChange(selfChange, uri)
-                uri?.let { reportScreenshotsUpdate(it) }
-            }
-        }
-        registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, contentObserver)
-        return contentObserver
     }
 }
