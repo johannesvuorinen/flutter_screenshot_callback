@@ -1,5 +1,6 @@
 package com.flutter.moum.screenshot_callback
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
 import android.database.ContentObserver
@@ -8,22 +9,53 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import android.os.Environment
+import android.util.Log
+import android.content.pm.PackageManager
+import java.lang.ref.WeakReference
+import android.app.Activity
 
-class ScreenshotDetector(private val context: Context,
-                         private val callback: (name: String) -> Unit) {
+open class ScreenshotDetector(private val activity: Activity, private val context: Context,
+                         private val callback: (name: String) -> Unit) : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "ScreenshotDetector"
+        private const val REQUEST_CODE_READ_EXTERNAL_STORAGE_PERMISSION = 3009
+    }
 
     private var contentObserver: ContentObserver? = null
 
-    fun start() {
-        if (contentObserver == null) {
-            contentObserver = context.contentResolver.registerObserver()
+    private val screenCaptureCallback: Any get() {
+        return if (Build.VERSION.SDK_INT >= 34) {
+            ScreenCaptureCallback {
+                Log.d(TAG, "Screenshot detected");
+                callback.invoke("screenshot")
+            }
+        } else {
+            Unit
+        }
+    }
 
+    fun start() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerScreenCaptureCallback(mainExecutor, screenCaptureCallback as Activity.ScreenCaptureCallback)
+        } else {
+            if (contentObserver == null) {
+                contentObserver = context.contentResolver.registerObserver()
+            }
         }
     }
 
     fun stop() {
-        contentObserver?.let { context.contentResolver.unregisterContentObserver(it) }
-        contentObserver = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            unregisterScreenCaptureCallback(screenCaptureCallback as Activity.ScreenCaptureCallback)
+        } else {
+            contentObserver?.let { context.contentResolver.unregisterContentObserver(it) }
+            contentObserver = null
+        }
     }
 
     private fun reportScreenshotsUpdate(uri: Uri) {
@@ -33,77 +65,76 @@ class ScreenshotDetector(private val context: Context,
         }
     }
 
-    private fun queryScreenshots(uri: Uri): List<String> {
-        /// as we are not doing anything with the path,
-        /// so just copy uri path and return so it can trigger a callback
-        /// instead of getting into queryDataColumn as its returning 0 length on anycase.
-        return try {
-            listOf(uri.path.toString())
+    @Suppress("DEPRECATION")
+    private fun getPublicScreenshotDirectoryName() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_SCREENSHOTS).name
+    } else null
 
-//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-//                queryRelativeDataColumn(uri)
-//            } else {
-//                queryDataColumn(uri)
-//            }
-            /// dummy list as 1 length as we are not able to get the screenshot path
-
-        }  catch (e:Exception){
-            listOf()
-        }
-    }
-
-    private fun queryDataColumn(uri: Uri): List<String> {
-        val screenshots = mutableListOf<String>()
-
-        val projection = arrayOf(
-                MediaStore.Images.Media.DATA
-        )
-        context.contentResolver.query(
-                uri,
-                projection,
-                null,
-                null,
-                null
-        )?.use { cursor ->
-            val dataColumn = cursor.getColumnIndex(MediaStore.Images.Media.DATA)
-
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(dataColumn)
-                if (path.contains("screenshot", true)) {
-                    screenshots.add(path)
-                }
-            }
-        }
-
-        /// print the total screenshots and say in print that its done
-        return screenshots
-    }
-
-    private fun queryRelativeDataColumn(uri: Uri): List<String> {
-        val screenshots = mutableListOf<String>()
-
-        val projection = arrayOf(
-            MediaStore.Images.Media.DISPLAY_NAME
-        )
+    @Suppress("DEPRECATION")
+    private fun getFilePathFromContentResolver(uri: Uri): String? {
         try {
             context.contentResolver.query(
                 uri,
-                projection,
+                arrayOf(
+                    MediaStore.Images.Media.DISPLAY_NAME,
+                    MediaStore.Images.Media.DATA
+                ),
                 null,
                 null,
                 null
-            )?.use { cursor ->
-                val displayNameColumn = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
-                while (cursor.moveToNext()) {
-                    val name = cursor.getString(displayNameColumn)
-                    screenshots.add(name)
-                }
+            )?.let { cursor ->
+                cursor.moveToFirst()
+                val path = cursor.getString(cursor.getColumnIndex(MediaStore.Images.Media.DATA))
+                cursor.close()
+                return path
             }
         } catch (e: Exception) {
+            Log.w(TAG, e.message ?: "")
         }
-        return screenshots
+
+        return null
     }
 
+    private fun isScreenshotPath(path: String?): Boolean {
+        if (path != null) {
+            Log.w(TAG, path)
+        }
+        val lowercasePath = path?.lowercase()
+        val screenshotDirectory = getPublicScreenshotDirectoryName()?.lowercase()
+        if (lowercasePath?.contains(".pending") == true) {
+            return false
+        }
+        return (screenshotDirectory != null &&
+                lowercasePath?.contains(screenshotDirectory) == true) ||
+                lowercasePath?.contains("screenshot") == true
+    }
+
+    private fun isReadExternalStoragePermissionGranted(): Boolean {
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private fun queryScreenshots(uri: Uri): List<String> {
+        if (!isReadExternalStoragePermissionGranted()) {
+            return listOf()
+            //ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), REQUEST_CODE_READ_EXTERNAL_STORAGE_PERMISSION);
+        }
+
+        try {
+            val path = getFilePathFromContentResolver(uri)
+
+            path?.let { p ->
+                if (isScreenshotPath(p)) {
+                    return listOf(p);
+                }
+                return listOf()
+            }
+
+            //listOf(uri.path.toString())
+            return listOf()
+        } catch (e:Exception){
+            return listOf()
+        }
+    }
 
     private fun ContentResolver.registerObserver(): ContentObserver {
         val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
