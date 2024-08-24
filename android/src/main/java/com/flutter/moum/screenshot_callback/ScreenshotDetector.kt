@@ -31,7 +31,7 @@ open class ScreenshotDetector(private val activity: Activity, private val contex
     private val idCounter: Int = 0
     private val screenCaptureCallback: Any get() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ScreenCaptureCallback {
+            Activity.ScreenCaptureCallback {
                 Log.d(TAG, "Screenshot detected");
                 callback.invoke("screenshot" + idCounter)
                 idCounter += 1
