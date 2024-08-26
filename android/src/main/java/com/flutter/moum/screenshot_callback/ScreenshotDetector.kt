@@ -28,7 +28,7 @@ open class ScreenshotDetector(private val activity: Activity, private val contex
 
     private var contentObserver: ContentObserver? = null
 
-    private val idCounter: Int = 0
+    private var idCounter: Int = 0
     private val screenCaptureCallback: Any get() {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             Activity.ScreenCaptureCallback {
