@@ -43,7 +43,7 @@ open class ScreenshotDetector(private val activity: Activity, private val contex
 
     fun start() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            registerScreenCaptureCallback(mainExecutor, screenCaptureCallback as Activity.ScreenCaptureCallback)
+            registerScreenCaptureCallback(activity.getMainExecutor(), screenCaptureCallback as Activity.ScreenCaptureCallback)
         } else {
             if (contentObserver == null) {
                 contentObserver = context.contentResolver.registerObserver()
